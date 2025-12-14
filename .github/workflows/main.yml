@@ -1,0 +1,38 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch: # 這是「手動開關」，讓您可以點按鈕開始打包
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install flet
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+
+      - name: Flet Build APK
+        run: |
+          # 這裡會幫您把 icon.jpg 放到正確位置並打包
+          flet build apk --project-name "NoseDiary" --product-name "鼻孔日記" --org "com.nosediary.app" -v --icon icon.jpg
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release
+          path: build/apk/app-release.apk
