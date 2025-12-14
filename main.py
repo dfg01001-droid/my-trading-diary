@@ -1,4 +1,4 @@
-# trading_diary.py (V5.6 - GitHub Actions 相容版 / 修復 Expanded 與 Colors 錯誤)
+# trading_diary.py (V5.8 - 終極修復版 / 修正縮排與 certifi)
 
 import flet as ft
 import sqlite3
@@ -147,30 +147,19 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "鼻孔警示交易日記 (V5.6)"
-    page.theme_mode = "LIGHT" # 使用字串避免枚舉報錯
+    page.title = "鼻孔警示交易日記 (V5.8)"
+    page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
     page.window_resizable = False
     page.scroll = "adaptive"
 
     # --- 設定圖示 ---
-    # 嘗試載入圖片，如果 icon.jpg 存在就使用
     if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)):
         page.window_icon = ICON_FILE
         avatar_content = ft.Image(src=ICON_FILE, width=40, height=40, fit="cover", border_radius=20)
     else:
-        # 如果找不到圖片，用預設圖示，避免報錯
         avatar_content = ft.Icon(name="face", size=30)
-
-    # 設定 APP 標題列 (AppBar)
-    page.appbar = ft.AppBar(
-        leading=ft.Container(content=avatar_content, padding=5),
-        leading_width=60,
-        title=ft.Text("交易日記", weight="bold", color="black"),
-        center_title=True,
-        bgcolor="#e0e0e0", # 使用 Hex 色碼避免 colors 報錯
-    )
 
     # --- 大圖 Dialog ---
     dlg_full_avatar = ft.AlertDialog(
@@ -197,17 +186,20 @@ def main(page: ft.Page):
         else:
             show_msg("找不到 icon.jpg", "red")
 
-    # 為 AppBar 的頭像增加點擊功能
-    if isinstance(page.appbar.leading.content, ft.Image):
-         # 用 Container 包裹並啟用 ink 和 on_click
-         page.appbar.leading = ft.Container(
-            content=page.appbar.leading.content,
+    # 設定 APP 標題列
+    page.appbar = ft.AppBar(
+        leading=ft.Container(
+            content=avatar_content, 
+            padding=5,
             on_click=show_full_avatar,
             ink=True,
-            border_radius=20,
-            padding=5
-         )
-
+            border_radius=20
+        ),
+        leading_width=60,
+        title=ft.Text("交易日記", weight="bold", color="black"),
+        center_title=True,
+        bgcolor="#e0e0e0",
+    )
 
     snack_bar = ft.SnackBar(content=ft.Text(""))
     page.overlay.append(snack_bar)
@@ -334,12 +326,10 @@ def main(page: ft.Page):
         for t in trades:
             color = "green" if t['pnl_usd'] >= 0 else "red"
             
-            # --- 關鍵修復：完全移除 ft.Expanded，改用 expand=True ---
             row = ft.Container(
                 content=ft.Row([
                     ft.Icon("trending_up" if t['pnl_usd']>=0 else "trending_down", color=color),
                     
-                    # 使用 expand=True 替代 ft.Expanded，解決報錯
                     ft.Column([
                         ft.Text(f"{t['pair']} {t['direction']}", weight="bold"),
                         ft.Text(f"${t['pnl_usd']:.2f}", color=color)
@@ -443,4 +433,70 @@ def main(page: ft.Page):
         except:
             show_msg("輸入錯誤", "red")
             
+    # 這裡修正縮排錯誤
     def export_csv_click(e):
+        try:
+            trades = db.get_all_trades()
+            if not trades: return show_msg("沒資料", "red")
+            filename = f"trade_export_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
+            with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+                w = csv.writer(f)
+                w.writerow(["ID", "Symbol", "Dir", "Lots", "Entry", "Exit", "PnL", "Time", "Note"])
+                for t in trades:
+                    w.writerow([t['id'], t['pair'], t['direction'], t['lots'], t['entry_price'], t['exit_price'], t['pnl_usd'], t['entry_time'], t['note']])
+            show_msg(f"已匯出: {filename}")
+        except Exception as ex:
+            show_msg(f"失敗: {ex}", "red")
+
+    def load_settings_data():
+        s = db.get_settings()
+        txt_forex.value = str(s['forex'])
+        txt_gold.value = str(s['gold'])
+        txt_crypto.value = str(s['crypto'])
+        lbl_thumbs_count.value = str(s['thumbs'])
+
+    thumbs_section = ft.Container(
+        content=ft.Column([
+            ft.Text("🛡️ 紀律計數器", size=20, weight="bold"),
+            ft.Text("每當你遵守一次交易計畫，就按一下讚！", color="grey"),
+            ft.Row([
+                ft.IconButton(icon="thumb_up", icon_size=50, icon_color="blue", on_click=thumbs_up_click),
+                lbl_thumbs_count,
+                ft.IconButton(icon="refresh", icon_size=20, icon_color="grey", tooltip="歸零重置", on_click=reset_thumbs_click)
+            ], alignment="center", spacing=20)
+        ], horizontal_alignment="center"),
+        padding=20, bgcolor="#e3f2fd", border_radius=15
+    )
+
+    tab_settings = ft.Container(
+        content=ft.Column([
+            ft.Text("合約設定", size=20, weight="bold"),
+            txt_forex, txt_gold, txt_crypto,
+            ft.ElevatedButton("更新設定", on_click=save_settings_click),
+            ft.Divider(),
+            thumbs_section,
+            ft.Divider(),
+            ft.ElevatedButton("匯出 Excel (CSV)", icon="download", on_click=export_csv_click, bgcolor="green", color="white"),
+        ], spacing=20), padding=20
+    )
+
+    def refresh_all_data():
+        load_history_data()
+        load_stats_data()
+        load_settings_data()
+
+    t = ft.Tabs(
+        selected_index=0,
+        tabs=[
+            ft.Tab(text="輸入", icon="edit", content=tab_entry),
+            ft.Tab(text="紀錄", icon="list", content=lv_history),
+            ft.Tab(text="統計", icon="analytics", content=tab_stats),
+            ft.Tab(text="設定", icon="settings", content=tab_settings),
+        ], expand=1
+    )
+
+    page.add(t)
+    refresh_all_data()
+
+if __name__ == "__main__":
+    ft.app(target=main)
