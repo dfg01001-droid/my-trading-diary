@@ -28,8 +28,8 @@ jobs:
 
       - name: Flet Build APK
         run: |
-          # 這裡先拿掉 icon 參數，先求有！
-          flet build apk --project-name "NoseDiary" --product-name "鼻孔日記" --org "com.nosediary.app" -v
+          # 我們把所有自訂名稱都拿掉，只留最單純的指令
+          flet build apk -v
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
