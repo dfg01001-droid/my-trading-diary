@@ -1,4 +1,4 @@
-# trading_diary.py (V5.7 - 鼻孔放大警示版 / 點頭像看大圖)
+# trading_diary.py (V5.6 - GitHub Actions 相容版 / 修復 Expanded 與 Colors 錯誤)
 
 import flet as ft
 import sqlite3
@@ -8,12 +8,12 @@ import csv
 from datetime import datetime
 
 # =========================================================================
-# 1. 資料庫邏輯 (WAL模式 + 自動修復)
+# 1. 資料庫邏輯
 # =========================================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "trading_data.db")
-ICON_FILE = "icon.jpg"  # 設定圖片檔名
+ICON_FILE = "icon.jpg"
 
 class DBManager:
     def __init__(self):
@@ -147,30 +147,36 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "鼻孔警示交易日記 (V5.7)"
-    page.theme_mode = "LIGHT"
+    page.title = "鼻孔警示交易日記 (V5.6)"
+    page.theme_mode = "LIGHT" # 使用字串避免枚舉報錯
     page.window_width = 400
     page.window_height = 800
     page.window_resizable = False
     page.scroll = "adaptive"
 
-    snack_bar = ft.SnackBar(content=ft.Text(""))
-    page.overlay.append(snack_bar)
+    # --- 設定圖示 ---
+    # 嘗試載入圖片，如果 icon.jpg 存在就使用
+    if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)):
+        page.window_icon = ICON_FILE
+        avatar_content = ft.Image(src=ICON_FILE, width=40, height=40, fit="cover", border_radius=20)
+    else:
+        # 如果找不到圖片，用預設圖示，避免報錯
+        avatar_content = ft.Icon(name="face", size=30)
 
-    def show_msg(msg, color="green"):
-        snack_bar.content.value = msg
-        snack_bar.bgcolor = color
-        snack_bar.open = True
-        page.update()
+    # 設定 APP 標題列 (AppBar)
+    page.appbar = ft.AppBar(
+        leading=ft.Container(content=avatar_content, padding=5),
+        leading_width=60,
+        title=ft.Text("交易日記", weight="bold", color="black"),
+        center_title=True,
+        bgcolor="#e0e0e0", # 使用 Hex 色碼避免 colors 報錯
+    )
 
-    # --- V5.7 新增：頭像放大功能 ---
-    
-    # 建立顯示大圖的 Dialog
+    # --- 大圖 Dialog ---
     dlg_full_avatar = ft.AlertDialog(
         content=ft.Container(
             content=ft.Image(src=ICON_FILE, fit="contain") if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)) else ft.Text("找不到圖片"),
             alignment=ft.alignment.center,
-            # 限制圖片最大高度，避免超出螢幕
             height=400, 
         ),
         actions=[
@@ -185,40 +191,32 @@ def main(page: ft.Page):
         page.update()
 
     def show_full_avatar(e):
-        # 再次檢查圖片是否存在
         if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)):
             dlg_full_avatar.open = True
             page.update()
         else:
-            show_msg("找不到 icon.jpg，請確認圖片位置", "red")
+            show_msg("找不到 icon.jpg", "red")
 
-    # --- 設定 AppBar (含可點擊的頭像) ---
-    
-    icon_path = os.path.join(BASE_DIR, ICON_FILE)
-    icon_exists = os.path.exists(icon_path)
-    
-    if icon_exists:
-        page.window_icon = ICON_FILE
-        # 這裡設定頭像 Container
-        avatar_content = ft.Container(
-            content=ft.Image(src=ICON_FILE, width=40, height=40, fit="cover", border_radius=20),
-            tooltip="點擊看大圖 (警示)",
-            on_click=show_full_avatar, # 綁定點擊事件
-            padding=5,
+    # 為 AppBar 的頭像增加點擊功能
+    if isinstance(page.appbar.leading.content, ft.Image):
+         # 用 Container 包裹並啟用 ink 和 on_click
+         page.appbar.leading = ft.Container(
+            content=page.appbar.leading.content,
+            on_click=show_full_avatar,
+            ink=True,
             border_radius=20,
-            ink=True # 點擊波紋效果
-        )
-    else:
-        # 如果沒圖片，顯示預設圖標，點擊無效
-        avatar_content = ft.Container(content=ft.Icon(name="face", size=30), padding=5)
+            padding=5
+         )
 
-    page.appbar = ft.AppBar(
-        leading=avatar_content,
-        leading_width=60,
-        title=ft.Text("交易日記", weight="bold", color="black"),
-        center_title=True,
-        bgcolor="#e0e0e0",
-    )
+
+    snack_bar = ft.SnackBar(content=ft.Text(""))
+    page.overlay.append(snack_bar)
+
+    def show_msg(msg, color="green"):
+        snack_bar.content.value = msg
+        snack_bar.bgcolor = color
+        snack_bar.open = True
+        page.update()
 
     # ==========================
     # Tab 1: 輸入頁面
@@ -336,10 +334,12 @@ def main(page: ft.Page):
         for t in trades:
             color = "green" if t['pnl_usd'] >= 0 else "red"
             
+            # --- 關鍵修復：完全移除 ft.Expanded，改用 expand=True ---
             row = ft.Container(
                 content=ft.Row([
                     ft.Icon("trending_up" if t['pnl_usd']>=0 else "trending_down", color=color),
                     
+                    # 使用 expand=True 替代 ft.Expanded，解決報錯
                     ft.Column([
                         ft.Text(f"{t['pair']} {t['direction']}", weight="bold"),
                         ft.Text(f"${t['pnl_usd']:.2f}", color=color)
