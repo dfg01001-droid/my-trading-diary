@@ -1,7 +1,7 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: # 這是「手動開關」，讓您可以點按鈕開始打包
+  workflow_dispatch:
 
 jobs:
   build:
@@ -28,8 +28,8 @@ jobs:
 
       - name: Flet Build APK
         run: |
-          # 這裡會幫您把 icon.jpg 放到正確位置並打包
-          flet build apk --project-name "NoseDiary" --product-name "鼻孔日記" --org "com.nosediary.app" -v --icon icon.jpg
+          # 這裡先拿掉 icon 參數，先求有！
+          flet build apk --project-name "NoseDiary" --product-name "鼻孔日記" --org "com.nosediary.app" -v
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
