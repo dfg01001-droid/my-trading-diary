@@ -1,0 +1,2 @@
+# my-trading-diary
+ForexTradingApp
