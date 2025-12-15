@@ -17,7 +17,6 @@ DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
 ICON_SRC = "/icon.jpg" 
 LOCAL_ICON_PATH = os.path.join(BASE_DIR, "assets", "icon.jpg")
 
-# 神豬語錄庫
 PIG_QUOTES = [
     "狼若回頭不是報恩就是報仇，我若回頭不是爆單就是爆倉！",
     "站在風口上，黑豬都能飛上天。",
@@ -84,7 +83,11 @@ PIG_QUOTES = [
 
 class DBManager:
     def __init__(self):
+        # 【修正】先初始化為 None，防止 init 失敗後屬性不存在
+        self.cursor = None
+        self.conn = None
         self.error_msg = None
+        
         try:
             db_dir = os.path.dirname(DB_FILE)
             if db_dir and not os.path.exists(db_dir):
@@ -94,10 +97,12 @@ class DBManager:
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            self.error_msg = f"DB Error: {str(e)}\nPath: {DB_FILE}"
+            # 記錄詳細錯誤與路徑
+            self.error_msg = f"資料庫錯誤: {str(e)}\n路徑: {DB_FILE}"
             print(self.error_msg)
 
     def create_tables(self):
+        if not self.cursor: return
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +132,7 @@ class DBManager:
         self.conn.commit()
 
     def check_and_migrate(self):
+        if not self.cursor: return
         try:
             self.cursor.execute("SELECT note FROM trades LIMIT 1")
         except:
@@ -144,30 +150,41 @@ class DBManager:
             self.conn.commit()
 
     def get_settings(self):
-        self.cursor.execute('SELECT contract_forex, contract_gold, contract_crypto, thumbs_up_count FROM settings WHERE id=1')
-        row = self.cursor.fetchone()
-        if row:
-            crypto = row[2] if len(row) > 2 else 1.0
-            thumbs = row[3] if len(row) > 3 else 0
-            return {"forex": row[0], "gold": row[1], "crypto": crypto, "thumbs": thumbs}
+        # 【修正】防崩潰檢查
+        if not self.cursor: 
+            return {"forex": 100000.0, "gold": 100.0, "crypto": 1.0, "thumbs": 0}
+        
+        try:
+            self.cursor.execute('SELECT contract_forex, contract_gold, contract_crypto, thumbs_up_count FROM settings WHERE id=1')
+            row = self.cursor.fetchone()
+            if row:
+                crypto = row[2] if len(row) > 2 else 1.0
+                thumbs = row[3] if len(row) > 3 else 0
+                return {"forex": row[0], "gold": row[1], "crypto": crypto, "thumbs": thumbs}
+        except:
+            pass
         return {"forex": 100000.0, "gold": 100.0, "crypto": 1.0, "thumbs": 0}
 
     def update_settings(self, forex, gold, crypto):
+        if not self.cursor: return
         self.cursor.execute('UPDATE settings SET contract_forex=?, contract_gold=?, contract_crypto=? WHERE id=1', (forex, gold, crypto))
         self.conn.commit()
 
     def increment_thumbs_up(self):
+        if not self.cursor: return 0
         self.cursor.execute('UPDATE settings SET thumbs_up_count = thumbs_up_count + 1 WHERE id=1')
         self.conn.commit()
         self.cursor.execute('SELECT thumbs_up_count FROM settings WHERE id=1')
         return self.cursor.fetchone()[0]
 
     def reset_thumbs_up(self):
+        if not self.cursor: return 0
         self.cursor.execute('UPDATE settings SET thumbs_up_count = 0 WHERE id=1')
         self.conn.commit()
         return 0
 
     def add_trade(self, data):
+        if not self.cursor: return False
         try:
             self.cursor.execute('''
                 INSERT INTO trades (pair, direction, lots, entry_price, exit_price, pnl_usd, entry_time, note)
@@ -179,6 +196,7 @@ class DBManager:
             return False
 
     def get_all_trades(self):
+        if not self.cursor: return []
         self.cursor.execute('SELECT * FROM trades ORDER BY id DESC')
         rows = self.cursor.fetchall()
         trades = []
@@ -191,6 +209,7 @@ class DBManager:
         return trades
 
     def get_trade_by_id(self, trade_id):
+        if not self.cursor: return None
         self.cursor.execute('SELECT * FROM trades WHERE id=?', (trade_id,))
         row = self.cursor.fetchone()
         if row:
@@ -202,10 +221,12 @@ class DBManager:
         return None
 
     def update_trade_note(self, trade_id, note_content):
+        if not self.cursor: return
         self.cursor.execute('UPDATE trades SET note=? WHERE id=?', (note_content, trade_id))
         self.conn.commit()
 
     def delete_trade(self, trade_id):
+        if not self.cursor: return
         self.cursor.execute('DELETE FROM trades WHERE id=?', (trade_id,))
         self.conn.commit()
 
@@ -216,21 +237,11 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V7.1)"
+    page.title = "招財黑豬交易日記 (V7.2)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
     
-    # 【重要修正】移除 page.scroll，解決 Tab 內容空白問題
-    # page.scroll = "adaptive"  <-- 這一行刪掉了
-    
-    # 如果有資料庫錯誤，顯示紅條
-    if db.error_msg:
-        page.add(ft.Container(
-            content=ft.Text(f"⚠️ {db.error_msg}", color="white", weight="bold"),
-            bgcolor="red", padding=10, border_radius=5
-        ))
-
     snack_bar = ft.SnackBar(content=ft.Text(""))
     page.overlay.append(snack_bar)
 
@@ -317,11 +328,10 @@ def main(page: ft.Page):
                 show_msg(f"保存成功! ${pnl:.2f}")
                 refresh_all_data()
             else:
-                show_msg("保存失敗 (DB Error)", "red")
+                show_msg("保存失敗 (DB錯誤)", "red")
         except:
             show_msg("輸入錯誤", "red")
 
-    # 【重要】輸入區塊加入 scroll="auto"，讓小螢幕可以捲動
     tab_entry = ft.Container(
         content=ft.Column([
             ft.Text("新增交易", size=20, weight="bold"),
@@ -431,7 +441,7 @@ def main(page: ft.Page):
     )
 
     # --- Tab 3: 統計 ---
-    stats_container = ft.Column(spacing=20, scroll="auto") # 加入 scroll="auto"
+    stats_container = ft.Column(spacing=20, scroll="auto")
     dlg_help = ft.AlertDialog(title=ft.Text("說明"), content=ft.Text(""))
     page.overlay.append(dlg_help)
 
@@ -513,7 +523,7 @@ def main(page: ft.Page):
             ft.Divider(),
             ft.Text("資料管理", size=20, weight="bold"),
             ft.ElevatedButton("匯出 CSV", icon="download", on_click=export_csv_click, bgcolor="green", color="white")
-        ], spacing=20, scroll="auto"), # 加入 scroll="auto"
+        ], spacing=20, scroll="auto"),
         padding=20
     )
 
@@ -534,6 +544,14 @@ def main(page: ft.Page):
 
     page.clean()
     page.add(t)
+    
+    # 【修正】先檢查有沒有錯誤訊息，再添加紅條
+    if db.error_msg:
+        page.add(ft.Container(
+            content=ft.Text(f"⚠️ {db.error_msg}", color="white", weight="bold"),
+            bgcolor="red", padding=10, border_radius=5
+        ))
+    
     refresh_all_data()
 
 if __name__ == "__main__":
