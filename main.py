@@ -1,4 +1,4 @@
-# trading_diary.py (V5.8 - 終極修復版 / 修正縮排與 certifi)
+# main.py (V6.0 - 終極防白屏版 / 修復資料庫路徑權限)
 
 import flet as ft
 import sqlite3
@@ -8,23 +8,33 @@ import csv
 from datetime import datetime
 
 # =========================================================================
-# 1. 資料庫邏輯
+# 1. 資料庫設定 (針對 Android 權限修正)
 # =========================================================================
 
+# 取得目前檔案所在的資料夾 (用來讀取圖片 icon.jpg)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "trading_data.db")
 ICON_FILE = "icon.jpg"
+
+# 【關鍵修正】
+# 資料庫不能放在唯讀的程式資料夾，要放在使用者的家目錄 (writable directory)
+# os.path.expanduser("~") 在 Android 上會指向 /data/data/com.nosediary.app/files/
+USER_DATA_DIR = os.path.expanduser("~")
+DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
 
 class DBManager:
     def __init__(self):
+        self.error_msg = None
         try:
+            # 嘗試連線資料庫
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
             self.conn.execute("PRAGMA journal_mode=WAL;")
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            print(f"資料庫錯誤: {e}")
+            # 如果出錯，把錯誤存起來，等一下顯示在螢幕上
+            self.error_msg = str(e)
+            print(f"資料庫初始化失敗: {e}")
 
     def create_tables(self):
         self.cursor.execute('''
@@ -140,6 +150,7 @@ class DBManager:
         self.cursor.execute('DELETE FROM trades WHERE id=?', (trade_id,))
         self.conn.commit()
 
+# 初始化 DB (注意：如果這裡失敗，會在 main 裡面處理)
 db = DBManager()
 
 # =========================================================================
@@ -147,15 +158,35 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "鼻孔警示交易日記 (V5.8)"
+    page.title = "招財黑豬交易日記 (V6.0)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
     page.window_resizable = False
     page.scroll = "adaptive"
 
+    # --- 防白屏檢查 ---
+    if db.error_msg:
+        # 如果資料庫壞了，直接顯示紅色錯誤訊息，不要讓畫面空白
+        page.add(
+            ft.Column([
+                ft.Icon("error", color="red", size=50),
+                ft.Text("應用程式啟動失敗", size=30, weight="bold"),
+                ft.Text(f"錯誤代碼: {db.error_msg}", color="red"),
+                ft.Text(f"DB路徑: {DB_FILE}")
+            ], alignment="center", horizontal_alignment="center")
+        )
+        return
+
+    # 先顯示一個載入中，確保畫面有東西
+    loading_text = ft.Text("正在載入小豬...", color="blue")
+    page.add(loading_text)
+    page.update()
+
     # --- 設定圖示 ---
-    if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)):
+    # 讀取圖片還是用 BASE_DIR，因為圖片是打包在資源裡的，不需要寫入權限
+    icon_path = os.path.join(BASE_DIR, ICON_FILE)
+    if os.path.exists(icon_path):
         page.window_icon = ICON_FILE
         avatar_content = ft.Image(src=ICON_FILE, width=40, height=40, fit="cover", border_radius=20)
     else:
@@ -164,7 +195,7 @@ def main(page: ft.Page):
     # --- 大圖 Dialog ---
     dlg_full_avatar = ft.AlertDialog(
         content=ft.Container(
-            content=ft.Image(src=ICON_FILE, fit="contain") if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)) else ft.Text("找不到圖片"),
+            content=ft.Image(src=ICON_FILE, fit="contain") if os.path.exists(icon_path) else ft.Text("找不到圖片"),
             alignment=ft.alignment.center,
             height=400, 
         ),
@@ -180,7 +211,7 @@ def main(page: ft.Page):
         page.update()
 
     def show_full_avatar(e):
-        if os.path.exists(os.path.join(BASE_DIR, ICON_FILE)):
+        if os.path.exists(icon_path):
             dlg_full_avatar.open = True
             page.update()
         else:
@@ -319,30 +350,33 @@ def main(page: ft.Page):
 
     def load_history_data():
         lv_history.controls.clear()
-        trades = db.get_all_trades()
-        if not trades:
-            lv_history.controls.append(ft.Text("尚無紀錄"))
-        
-        for t in trades:
-            color = "green" if t['pnl_usd'] >= 0 else "red"
+        try:
+            trades = db.get_all_trades()
+            if not trades:
+                lv_history.controls.append(ft.Text("尚無紀錄"))
             
-            row = ft.Container(
-                content=ft.Row([
-                    ft.Icon("trending_up" if t['pnl_usd']>=0 else "trending_down", color=color),
-                    
-                    ft.Column([
-                        ft.Text(f"{t['pair']} {t['direction']}", weight="bold"),
-                        ft.Text(f"${t['pnl_usd']:.2f}", color=color)
-                    ], expand=True), 
-                    
-                    ft.IconButton(icon="edit", icon_color="blue", tooltip="詳細/心得", data=t['id'], on_click=open_detail_click),
-                    ft.IconButton(icon="delete", icon_color="red", tooltip="刪除", data=t['id'], on_click=delete_trade_click),
-                ]),
-                padding=10,
-                bgcolor="white",
-                border_radius=5
-            )
-            lv_history.controls.append(row)
+            for t in trades:
+                color = "green" if t['pnl_usd'] >= 0 else "red"
+                
+                row = ft.Container(
+                    content=ft.Row([
+                        ft.Icon("trending_up" if t['pnl_usd']>=0 else "trending_down", color=color),
+                        
+                        ft.Column([
+                            ft.Text(f"{t['pair']} {t['direction']}", weight="bold"),
+                            ft.Text(f"${t['pnl_usd']:.2f}", color=color)
+                        ], expand=True), 
+                        
+                        ft.IconButton(icon="edit", icon_color="blue", tooltip="詳細/心得", data=t['id'], on_click=open_detail_click),
+                        ft.IconButton(icon="delete", icon_color="red", tooltip="刪除", data=t['id'], on_click=delete_trade_click),
+                    ]),
+                    padding=10,
+                    bgcolor="white",
+                    border_radius=5
+                )
+                lv_history.controls.append(row)
+        except Exception as e:
+            lv_history.controls.append(ft.Text(f"讀取失敗: {e}", color="red"))
         page.update()
 
     # ==========================
@@ -371,37 +405,40 @@ def main(page: ft.Page):
         )
 
     def load_stats_data():
-        trades = db.get_all_trades()
-        stats_container.controls.clear()
-        
-        net_profit = sum(t['pnl_usd'] for t in trades)
-        wins = [t for t in trades if t['pnl_usd'] > 0]
-        losses = [t for t in trades if t['pnl_usd'] <= 0]
-        
-        win_count = len(wins)
-        loss_count = len(losses)
-        win_rate = (win_count/len(trades)*100) if trades else 0
-        pf = (sum(t['pnl_usd'] for t in wins) / abs(sum(t['pnl_usd'] for t in losses))) if losses else 0
+        try:
+            trades = db.get_all_trades()
+            stats_container.controls.clear()
+            
+            net_profit = sum(t['pnl_usd'] for t in trades)
+            wins = [t for t in trades if t['pnl_usd'] > 0]
+            losses = [t for t in trades if t['pnl_usd'] <= 0]
+            
+            win_count = len(wins)
+            loss_count = len(losses)
+            win_rate = (win_count/len(trades)*100) if trades else 0
+            pf = (sum(t['pnl_usd'] for t in wins) / abs(sum(t['pnl_usd'] for t in losses))) if losses else 0
 
-        row1 = ft.Row([
-            create_stat_card("淨利", f"${net_profit:.2f}", "green" if net_profit>=0 else "red", "綠色=賺錢\n紅色=賠錢"),
-            create_stat_card("勝率", f"{win_rate:.1f}%", "blue", "短線建議 > 60%\n長線建議 > 40%")
-        ], alignment="center")
-        
-        row2 = ft.Row([
-            create_stat_card("獲利因子", f"{pf:.2f}", "orange", "總獲利 / 總虧損\n> 1.5 為優秀策略"),
-            create_stat_card("總筆數", f"{len(trades)}", "black", "樣本數越多越準")
-        ], alignment="center")
+            row1 = ft.Row([
+                create_stat_card("淨利", f"${net_profit:.2f}", "green" if net_profit>=0 else "red", "綠色=賺錢\n紅色=賠錢"),
+                create_stat_card("勝率", f"{win_rate:.1f}%", "blue", "短線建議 > 60%\n長線建議 > 40%")
+            ], alignment="center")
+            
+            row2 = ft.Row([
+                create_stat_card("獲利因子", f"{pf:.2f}", "orange", "總獲利 / 總虧損\n> 1.5 為優秀策略"),
+                create_stat_card("總筆數", f"{len(trades)}", "black", "樣本數越多越準")
+            ], alignment="center")
 
-        row3 = ft.Row([
-            create_stat_card("獲利筆數", f"{win_count}", "green", "賺錢的次數"),
-            create_stat_card("虧損筆數", f"{loss_count}", "red", "賠錢的次數\n重點是控制虧損")
-        ], alignment="center")
+            row3 = ft.Row([
+                create_stat_card("獲利筆數", f"{win_count}", "green", "賺錢的次數"),
+                create_stat_card("虧損筆數", f"{loss_count}", "red", "賠錢的次數\n重點是控制虧損")
+            ], alignment="center")
 
-        stats_container.controls.extend([
-            ft.Text("帳戶統計 (點問號看說明)", size=20, weight="bold", text_align="center"),
-            row1, row2, row3
-        ])
+            stats_container.controls.extend([
+                ft.Text("帳戶統計 (點問號看說明)", size=20, weight="bold", text_align="center"),
+                row1, row2, row3
+            ])
+        except Exception as e:
+            stats_container.controls.append(ft.Text(f"統計失敗: {e}", color="red"))
         page.update()
 
     tab_stats = ft.Container(content=stats_container, padding=20)
@@ -433,27 +470,34 @@ def main(page: ft.Page):
         except:
             show_msg("輸入錯誤", "red")
             
-    # 這裡修正縮排錯誤
     def export_csv_click(e):
         try:
             trades = db.get_all_trades()
             if not trades: return show_msg("沒資料", "red")
-            filename = f"trade_export_{datetime.now().strftime('%Y%m%d%H%M')}.csv"
+            
+            # 修正匯出路徑，同樣要存到 User Data Dir 才能寫入
+            # 或者存到 Android 的 Download 資料夾 (需要權限，比較麻煩)
+            # 這裡先存到 User Data Dir，並顯示完整路徑讓使用者知道
+            filename = os.path.join(USER_DATA_DIR, f"trade_export_{datetime.now().strftime('%Y%m%d%H%M')}.csv")
+            
             with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
                 w = csv.writer(f)
                 w.writerow(["ID", "Symbol", "Dir", "Lots", "Entry", "Exit", "PnL", "Time", "Note"])
                 for t in trades:
                     w.writerow([t['id'], t['pair'], t['direction'], t['lots'], t['entry_price'], t['exit_price'], t['pnl_usd'], t['entry_time'], t['note']])
-            show_msg(f"已匯出: {filename}")
+            show_msg(f"已匯出至: {filename}")
         except Exception as ex:
             show_msg(f"失敗: {ex}", "red")
 
     def load_settings_data():
-        s = db.get_settings()
-        txt_forex.value = str(s['forex'])
-        txt_gold.value = str(s['gold'])
-        txt_crypto.value = str(s['crypto'])
-        lbl_thumbs_count.value = str(s['thumbs'])
+        try:
+            s = db.get_settings()
+            txt_forex.value = str(s['forex'])
+            txt_gold.value = str(s['gold'])
+            txt_crypto.value = str(s['crypto'])
+            lbl_thumbs_count.value = str(s['thumbs'])
+        except:
+            pass
 
     thumbs_section = ft.Container(
         content=ft.Column([
@@ -495,6 +539,8 @@ def main(page: ft.Page):
         ], expand=1
     )
 
+    # 移除載入畫面，顯示主畫面
+    page.clean()
     page.add(t)
     refresh_all_data()
 
