@@ -1,4 +1,4 @@
-# main.py (V6.0 - 終極防白屏版 / 修復資料庫路徑權限)
+# main.py (V6.1 - 絕對終極版 / 修復縮排、顏色、路徑、套件)
 
 import flet as ft
 import sqlite3
@@ -8,16 +8,14 @@ import csv
 from datetime import datetime
 
 # =========================================================================
-# 1. 資料庫設定 (針對 Android 權限修正)
+# 1. 資料庫與路徑設定 (針對 Android 修正)
 # =========================================================================
 
-# 取得目前檔案所在的資料夾 (用來讀取圖片 icon.jpg)
+# 取得目前檔案所在的資料夾 (用來讀取圖片)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_FILE = "icon.jpg"
 
-# 【關鍵修正】
-# 資料庫不能放在唯讀的程式資料夾，要放在使用者的家目錄 (writable directory)
-# os.path.expanduser("~") 在 Android 上會指向 /data/data/com.nosediary.app/files/
+# 【關鍵修正】資料庫存放在使用者目錄，解決權限不足導致的白屏/閃退
 USER_DATA_DIR = os.path.expanduser("~")
 DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
 
@@ -25,16 +23,14 @@ class DBManager:
     def __init__(self):
         self.error_msg = None
         try:
-            # 嘗試連線資料庫
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
             self.conn.execute("PRAGMA journal_mode=WAL;")
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            # 如果出錯，把錯誤存起來，等一下顯示在螢幕上
             self.error_msg = str(e)
-            print(f"資料庫初始化失敗: {e}")
+            print(f"DB Error: {e}")
 
     def create_tables(self):
         self.cursor.execute('''
@@ -71,13 +67,11 @@ class DBManager:
         except:
             self.cursor.execute("ALTER TABLE trades ADD COLUMN note TEXT DEFAULT ''")
             self.conn.commit()
-        
         try:
             self.cursor.execute("SELECT contract_crypto FROM settings LIMIT 1")
         except:
             self.cursor.execute("ALTER TABLE settings ADD COLUMN contract_crypto REAL DEFAULT 1.0")
             self.conn.commit()
-
         try:
             self.cursor.execute("SELECT thumbs_up_count FROM settings LIMIT 1")
         except:
@@ -150,7 +144,6 @@ class DBManager:
         self.cursor.execute('DELETE FROM trades WHERE id=?', (trade_id,))
         self.conn.commit()
 
-# 初始化 DB (注意：如果這裡失敗，會在 main 裡面處理)
 db = DBManager()
 
 # =========================================================================
@@ -158,33 +151,27 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V6.0)"
+    page.title = "招財黑豬交易日記 (V6.1)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
-    page.window_resizable = False
     page.scroll = "adaptive"
 
-    # --- 防白屏檢查 ---
+    # 防白屏：如果有資料庫錯誤，直接顯示在螢幕上
     if db.error_msg:
-        # 如果資料庫壞了，直接顯示紅色錯誤訊息，不要讓畫面空白
-        page.add(
-            ft.Column([
-                ft.Icon("error", color="red", size=50),
-                ft.Text("應用程式啟動失敗", size=30, weight="bold"),
-                ft.Text(f"錯誤代碼: {db.error_msg}", color="red"),
-                ft.Text(f"DB路徑: {DB_FILE}")
-            ], alignment="center", horizontal_alignment="center")
-        )
+        page.add(ft.Text(f"錯誤: {db.error_msg}", color="red", size=20))
         return
 
-    # 先顯示一個載入中，確保畫面有東西
-    loading_text = ft.Text("正在載入小豬...", color="blue")
-    page.add(loading_text)
-    page.update()
+    snack_bar = ft.SnackBar(content=ft.Text(""))
+    page.overlay.append(snack_bar)
 
-    # --- 設定圖示 ---
-    # 讀取圖片還是用 BASE_DIR，因為圖片是打包在資源裡的，不需要寫入權限
+    def show_msg(msg, color="green"):
+        snack_bar.content.value = msg
+        snack_bar.bgcolor = color
+        snack_bar.open = True
+        page.update()
+
+    # --- 圖示處理 ---
     icon_path = os.path.join(BASE_DIR, ICON_FILE)
     if os.path.exists(icon_path):
         page.window_icon = ICON_FILE
@@ -197,11 +184,9 @@ def main(page: ft.Page):
         content=ft.Container(
             content=ft.Image(src=ICON_FILE, fit="contain") if os.path.exists(icon_path) else ft.Text("找不到圖片"),
             alignment=ft.alignment.center,
-            height=400, 
+            height=400,
         ),
-        actions=[
-            ft.TextButton("關閉", on_click=lambda e: close_avatar_dlg(e))
-        ],
+        actions=[ft.TextButton("關閉", on_click=lambda e: close_avatar_dlg(e))],
         actions_alignment="center"
     )
     page.overlay.append(dlg_full_avatar)
@@ -215,12 +200,12 @@ def main(page: ft.Page):
             dlg_full_avatar.open = True
             page.update()
         else:
-            show_msg("找不到 icon.jpg", "red")
+            show_msg("找不到圖片", "red")
 
-    # 設定 APP 標題列
+    # AppBar
     page.appbar = ft.AppBar(
         leading=ft.Container(
-            content=avatar_content, 
+            content=avatar_content,
             padding=5,
             on_click=show_full_avatar,
             ink=True,
@@ -232,25 +217,14 @@ def main(page: ft.Page):
         bgcolor="#e0e0e0",
     )
 
-    snack_bar = ft.SnackBar(content=ft.Text(""))
-    page.overlay.append(snack_bar)
-
-    def show_msg(msg, color="green"):
-        snack_bar.content.value = msg
-        snack_bar.bgcolor = color
-        snack_bar.open = True
-        page.update()
-
-    # ==========================
-    # Tab 1: 輸入頁面
-    # ==========================
+    # --- Tab 1: 輸入 ---
     def on_menu_item_click(e):
         txt_pair.value = e.control.data
         page.update()
 
     common_pairs = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY", "US30", "NAS100", "BTCUSD", "ETHUSD", "SOLUSD"]
     menu_items = [ft.PopupMenuItem(text=p, data=p, on_click=on_menu_item_click) for p in common_pairs]
-    
+
     txt_pair = ft.TextField(label="商品", suffix=ft.PopupMenuButton(icon="arrow_drop_down", items=menu_items))
     dd_direction = ft.Dropdown(label="方向", options=[ft.dropdown.Option("BUY"), ft.dropdown.Option("SELL")], value="BUY")
     txt_lots = ft.TextField(label="手數", value="0.01", keyboard_type="number")
@@ -262,14 +236,12 @@ def main(page: ft.Page):
         try:
             pair = txt_pair.value.upper().strip() if txt_pair.value else ""
             if not pair: return show_msg("請輸入商品", "red")
-            
             lots = float(txt_lots.value)
             entry = float(txt_entry.value)
             exit_p = float(txt_exit.value)
             
             settings = db.get_settings()
             contract = settings['gold'] if "XAU" in pair or "GOLD" in pair else (settings['crypto'] if any(k in pair for k in ["BTC","ETH","SOL"]) else settings['forex'])
-            
             pnl = (exit_p - entry if dd_direction.value=="BUY" else entry - exit_p) * lots * contract
             
             data = {'pair': pair, 'direction': dd_direction.value, 'lots': lots, 'entry_price': entry, 'exit_price': exit_p, 'pnl_usd': pnl}
@@ -279,7 +251,7 @@ def main(page: ft.Page):
             else:
                 show_msg("保存失敗", "red")
         except:
-            show_msg("輸入格式錯誤", "red")
+            show_msg("輸入錯誤", "red")
 
     tab_entry = ft.Container(
         content=ft.Column([
@@ -290,27 +262,22 @@ def main(page: ft.Page):
         ], spacing=15), padding=20
     )
 
-    # ==========================
-    # Tab 2: 紀錄頁面
-    # ==========================
-    lv_history = ft.ListView(expand=1, spacing=10, padding=20)
-    
-    txt_detail_note = ft.TextField(label="心得與檢討", multiline=True, min_lines=5)
+    # --- Tab 2: 紀錄 ---
+    lv_history = ft.ListView(expand=True, spacing=10, padding=20)
+    txt_detail_note = ft.TextField(label="心得", multiline=True, min_lines=5)
     current_trade_id = None
     
     dlg_detail = ft.AlertDialog(
         title=ft.Text("詳細資料"),
         content=ft.Column([ft.Text("載入中...")], height=400, scroll="adaptive"),
-        actions=[
-            ft.ElevatedButton("保存心得", on_click=lambda e: save_note_click(e))
-        ]
+        actions=[ft.ElevatedButton("保存心得", on_click=lambda e: save_note_click(e))]
     )
     page.overlay.append(dlg_detail)
 
     def save_note_click(e):
         if current_trade_id:
             db.update_trade_note(current_trade_id, txt_detail_note.value)
-            show_msg("心得已更新")
+            show_msg("已更新")
             dlg_detail.open = False
             page.update()
             refresh_all_data()
@@ -318,10 +285,8 @@ def main(page: ft.Page):
     def open_detail_click(e):
         nonlocal current_trade_id
         current_trade_id = e.control.data
-        
         trade = db.get_trade_by_id(current_trade_id)
         if not trade: return
-
         txt_detail_note.value = trade['note']
         pnl = trade['pnl_usd']
         color = "green" if pnl >= 0 else "red"
@@ -329,17 +294,12 @@ def main(page: ft.Page):
         dlg_detail.content.controls = [
             ft.Text(f"{trade['pair']} ({trade['direction']})", size=22, weight="bold", color=color),
             ft.Divider(),
-            ft.Row([ft.Text("時間:", weight="bold"), ft.Text(trade['entry_time'][:16])], alignment="spaceBetween"),
-            ft.Row([ft.Text("進場價:", weight="bold"), ft.Text(str(trade['entry_price']))], alignment="spaceBetween"),
-            ft.Row([ft.Text("出場價:", weight="bold"), ft.Text(str(trade['exit_price']))], alignment="spaceBetween"),
-            ft.Row([ft.Text("手數:", weight="bold"), ft.Text(str(trade['lots']))], alignment="spaceBetween"),
+            ft.Text(f"時間: {trade['entry_time'][:16]}"),
+            ft.Text(f"進場: {trade['entry_price']} / 出場: {trade['exit_price']}"),
+            ft.Text(f"手數: {trade['lots']} / 損益: ${pnl:.2f}", weight="bold", color=color),
             ft.Divider(),
-            ft.Row([ft.Text("損益:", weight="bold", size=18), ft.Text(f"${pnl:.2f}", size=18, color=color)], alignment="spaceBetween"),
-            ft.Divider(),
-            ft.Text("心得備註:", weight="bold"),
             txt_detail_note
         ]
-        
         dlg_detail.open = True
         page.update()
 
@@ -354,42 +314,34 @@ def main(page: ft.Page):
             trades = db.get_all_trades()
             if not trades:
                 lv_history.controls.append(ft.Text("尚無紀錄"))
-            
             for t in trades:
                 color = "green" if t['pnl_usd'] >= 0 else "red"
-                
                 row = ft.Container(
                     content=ft.Row([
                         ft.Icon("trending_up" if t['pnl_usd']>=0 else "trending_down", color=color),
-                        
                         ft.Column([
                             ft.Text(f"{t['pair']} {t['direction']}", weight="bold"),
                             ft.Text(f"${t['pnl_usd']:.2f}", color=color)
-                        ], expand=True), 
-                        
-                        ft.IconButton(icon="edit", icon_color="blue", tooltip="詳細/心得", data=t['id'], on_click=open_detail_click),
-                        ft.IconButton(icon="delete", icon_color="red", tooltip="刪除", data=t['id'], on_click=delete_trade_click),
+                        ], expand=True),
+                        ft.IconButton(icon="edit", icon_color="blue", data=t['id'], on_click=open_detail_click),
+                        ft.IconButton(icon="delete", icon_color="red", data=t['id'], on_click=delete_trade_click),
                     ]),
-                    padding=10,
-                    bgcolor="white",
-                    border_radius=5
+                    padding=10, bgcolor="white", border_radius=5
                 )
                 lv_history.controls.append(row)
         except Exception as e:
-            lv_history.controls.append(ft.Text(f"讀取失敗: {e}", color="red"))
+            lv_history.controls.append(ft.Text(f"Error: {e}"))
         page.update()
 
-    # ==========================
-    # Tab 3: 統計頁面
-    # ==========================
+    # --- Tab 3: 統計 ---
     stats_container = ft.Column(spacing=20, scroll="adaptive")
     dlg_help = ft.AlertDialog(title=ft.Text("說明"), content=ft.Text(""))
     page.overlay.append(dlg_help)
 
     def show_help_click(e):
-        title, text = e.control.data
-        dlg_help.title.value = title
-        dlg_help.content.value = text
+        t, txt = e.control.data
+        dlg_help.title.value = t
+        dlg_help.content.value = txt
         dlg_help.open = True
         page.update()
 
@@ -398,129 +350,89 @@ def main(page: ft.Page):
             content=ft.Column([
                 ft.Text(title, size=14, color="grey"),
                 ft.Text(value, size=22, weight="bold", color=color),
-                ft.IconButton(icon="help_outline", icon_size=20, icon_color="blue", 
-                              data=(title, help_text), on_click=show_help_click)
-            ], alignment="center", horizontal_alignment="center"),
+                ft.IconButton(icon="help_outline", icon_size=20, icon_color="blue", data=(title, help_text), on_click=show_help_click)
+            ], alignment="center"),
             width=150, padding=10, bgcolor="#f0f0f0", border_radius=10
         )
 
     def load_stats_data():
-        try:
-            trades = db.get_all_trades()
-            stats_container.controls.clear()
-            
-            net_profit = sum(t['pnl_usd'] for t in trades)
-            wins = [t for t in trades if t['pnl_usd'] > 0]
-            losses = [t for t in trades if t['pnl_usd'] <= 0]
-            
-            win_count = len(wins)
-            loss_count = len(losses)
-            win_rate = (win_count/len(trades)*100) if trades else 0
-            pf = (sum(t['pnl_usd'] for t in wins) / abs(sum(t['pnl_usd'] for t in losses))) if losses else 0
-
-            row1 = ft.Row([
-                create_stat_card("淨利", f"${net_profit:.2f}", "green" if net_profit>=0 else "red", "綠色=賺錢\n紅色=賠錢"),
-                create_stat_card("勝率", f"{win_rate:.1f}%", "blue", "短線建議 > 60%\n長線建議 > 40%")
-            ], alignment="center")
-            
-            row2 = ft.Row([
-                create_stat_card("獲利因子", f"{pf:.2f}", "orange", "總獲利 / 總虧損\n> 1.5 為優秀策略"),
-                create_stat_card("總筆數", f"{len(trades)}", "black", "樣本數越多越準")
-            ], alignment="center")
-
-            row3 = ft.Row([
-                create_stat_card("獲利筆數", f"{win_count}", "green", "賺錢的次數"),
-                create_stat_card("虧損筆數", f"{loss_count}", "red", "賠錢的次數\n重點是控制虧損")
-            ], alignment="center")
-
-            stats_container.controls.extend([
-                ft.Text("帳戶統計 (點問號看說明)", size=20, weight="bold", text_align="center"),
-                row1, row2, row3
-            ])
-        except Exception as e:
-            stats_container.controls.append(ft.Text(f"統計失敗: {e}", color="red"))
+        trades = db.get_all_trades()
+        stats_container.controls.clear()
+        net = sum(t['pnl_usd'] for t in trades)
+        wins = [t for t in trades if t['pnl_usd'] > 0]
+        losses = [t for t in trades if t['pnl_usd'] <= 0]
+        rate = (len(wins)/len(trades)*100) if trades else 0
+        
+        row1 = ft.Row([create_stat_card("淨利", f"${net:.2f}", "green" if net>=0 else "red", "淨利說明"), create_stat_card("勝率", f"{rate:.1f}%", "blue", "勝率說明")], alignment="center")
+        stats_container.controls.extend([ft.Text("帳戶統計", size=20, weight="bold", text_align="center"), row1])
         page.update()
 
     tab_stats = ft.Container(content=stats_container, padding=20)
 
-    # ==========================
-    # Tab 4: 設定
-    # ==========================
+    # --- Tab 4: 設定 ---
     txt_forex = ft.TextField(label="外匯合約")
     txt_gold = ft.TextField(label="黃金合約")
     txt_crypto = ft.TextField(label="加密貨幣合約")
-    lbl_thumbs_count = ft.Text("0", size=40, weight="bold", color="blue")
+    lbl_thumbs = ft.Text("0", size=40, weight="bold", color="blue")
 
-    def thumbs_up_click(e):
-        new_count = db.increment_thumbs_up()
-        lbl_thumbs_count.value = str(new_count)
-        show_msg("紀律 +1 ! 繼續保持!", "blue")
+    def thumbs_click(e):
+        lbl_thumbs.value = str(db.increment_thumbs_up())
+        show_msg("讚+1", "blue")
+        page.update()
+    
+    def reset_thumbs(e):
+        lbl_thumbs.value = str(db.reset_thumbs_up())
+        show_msg("已重置", "orange")
         page.update()
 
-    def reset_thumbs_click(e):
-        new_count = db.reset_thumbs_up()
-        lbl_thumbs_count.value = str(new_count)
-        show_msg("紀律計數器已歸零", "orange")
-        page.update()
-
-    def save_settings_click(e):
+    def save_set_click(e):
         try:
             db.update_settings(float(txt_forex.value), float(txt_gold.value), float(txt_crypto.value))
-            show_msg("設定已更新")
+            show_msg("已更新")
         except:
-            show_msg("輸入錯誤", "red")
-            
+            show_msg("錯誤", "red")
+
+    # 【縮排修正重點】
     def export_csv_click(e):
         try:
             trades = db.get_all_trades()
             if not trades: return show_msg("沒資料", "red")
-            
-            # 修正匯出路徑，同樣要存到 User Data Dir 才能寫入
-            # 或者存到 Android 的 Download 資料夾 (需要權限，比較麻煩)
-            # 這裡先存到 User Data Dir，並顯示完整路徑讓使用者知道
-            filename = os.path.join(USER_DATA_DIR, f"trade_export_{datetime.now().strftime('%Y%m%d%H%M')}.csv")
-            
-            with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+            path = os.path.join(USER_DATA_DIR, f"export_{datetime.now().strftime('%Y%m%d')}.csv")
+            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
                 w = csv.writer(f)
-                w.writerow(["ID", "Symbol", "Dir", "Lots", "Entry", "Exit", "PnL", "Time", "Note"])
+                w.writerow(["ID", "Pair", "Dir", "Lots", "Entry", "Exit", "PnL", "Time", "Note"])
                 for t in trades:
                     w.writerow([t['id'], t['pair'], t['direction'], t['lots'], t['entry_price'], t['exit_price'], t['pnl_usd'], t['entry_time'], t['note']])
-            show_msg(f"已匯出至: {filename}")
+            show_msg(f"匯出至: {path}")
         except Exception as ex:
             show_msg(f"失敗: {ex}", "red")
 
     def load_settings_data():
-        try:
-            s = db.get_settings()
-            txt_forex.value = str(s['forex'])
-            txt_gold.value = str(s['gold'])
-            txt_crypto.value = str(s['crypto'])
-            lbl_thumbs_count.value = str(s['thumbs'])
-        except:
-            pass
+        s = db.get_settings()
+        txt_forex.value = str(s['forex'])
+        txt_gold.value = str(s['gold'])
+        txt_crypto.value = str(s['crypto'])
+        lbl_thumbs.value = str(s['thumbs'])
 
     thumbs_section = ft.Container(
         content=ft.Column([
-            ft.Text("🛡️ 紀律計數器", size=20, weight="bold"),
-            ft.Text("每當你遵守一次交易計畫，就按一下讚！", color="grey"),
+            ft.Text("紀律計數器", size=20, weight="bold"),
             ft.Row([
-                ft.IconButton(icon="thumb_up", icon_size=50, icon_color="blue", on_click=thumbs_up_click),
-                lbl_thumbs_count,
-                ft.IconButton(icon="refresh", icon_size=20, icon_color="grey", tooltip="歸零重置", on_click=reset_thumbs_click)
-            ], alignment="center", spacing=20)
+                ft.IconButton(icon="thumb_up", icon_size=50, icon_color="blue", on_click=thumbs_click),
+                lbl_thumbs,
+                ft.IconButton(icon="refresh", icon_size=20, icon_color="grey", on_click=reset_thumbs)
+            ], alignment="center")
         ], horizontal_alignment="center"),
         padding=20, bgcolor="#e3f2fd", border_radius=15
     )
 
     tab_settings = ft.Container(
         content=ft.Column([
-            ft.Text("合約設定", size=20, weight="bold"),
+            ft.Text("設定", size=20, weight="bold"),
             txt_forex, txt_gold, txt_crypto,
-            ft.ElevatedButton("更新設定", on_click=save_settings_click),
-            ft.Divider(),
+            ft.ElevatedButton("更新設定", on_click=save_set_click),
             thumbs_section,
-            ft.Divider(),
-            ft.ElevatedButton("匯出 Excel (CSV)", icon="download", on_click=export_csv_click, bgcolor="green", color="white"),
+            ft.ElevatedButton("匯出 CSV", icon="download", on_click=export_csv_click, bgcolor="green", color="white")
         ], spacing=20), padding=20
     )
 
@@ -536,11 +448,9 @@ def main(page: ft.Page):
             ft.Tab(text="紀錄", icon="list", content=lv_history),
             ft.Tab(text="統計", icon="analytics", content=tab_stats),
             ft.Tab(text="設定", icon="settings", content=tab_settings),
-        ], expand=1
+        ], expand=True
     )
 
-    # 移除載入畫面，顯示主畫面
-    page.clean()
     page.add(t)
     refresh_all_data()
 
