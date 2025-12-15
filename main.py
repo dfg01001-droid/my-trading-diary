@@ -10,13 +10,8 @@ import sys
 # 1. 資料庫與路徑設定 (最終修正)
 # =========================================================================
 
-# Flet 在 Android/iOS 上會自動將 DB 放在 App 專屬的沙箱內。
-# 如果使用 os.path.expanduser("~")，在某些環境下可能會指向 /data，導致權限錯誤。
-# 修正方式：直接讓 DB 檔案名在根目錄，Flet 會自動找到 App 的安全目錄。
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 【重要修正】將 DB 檔名直接設定，讓 Flet 底層自動處理路徑
+# 修正 DB 路徑問題：讓 DB 檔案名在根目錄，Flet 會自動找到 App 的安全目錄。
 DB_FILE = "trading_data.db" 
 
 # 設定圖示路徑
@@ -94,13 +89,11 @@ class DBManager:
         self.error_msg = None
         
         try:
-            # 由於 DB_FILE 現在只是一個檔名，SQLite 會將其建立在目前 Flet 程式執行環境的安全目錄。
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            # 在 Android 上的路徑無法直接顯示，但我們會捕捉錯誤類型
             error_detail = str(e)
             if "unable to open database file" in error_detail:
                  error_detail = "無法打開資料庫檔案，可能是應用程式權限或路徑錯誤。"
@@ -109,7 +102,6 @@ class DBManager:
 
     def create_tables(self):
         if not self.cursor: return
-        # ... (Create table code remains the same) ...
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,7 +132,6 @@ class DBManager:
 
     def check_and_migrate(self):
         if not self.cursor: return
-        # ... (Migration code remains the same) ...
         try:
             self.cursor.execute("SELECT note FROM trades LIMIT 1")
         except:
@@ -244,7 +235,7 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V7.3)"
+    page.title = "招財黑豬交易日記 (V7.4)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
@@ -506,12 +497,8 @@ def main(page: ft.Page):
             trades = db.get_all_trades()
             if not trades: return show_msg("沒資料", "red")
             
-            # 【注意】外部存儲需要 Android 權限，這裡的 path 暫時先指向 App 內部，
-            # 實際匯出時需使用 flet.page.platform_directory.download
+            show_msg(f"匯出功能在 Android 上可能需要權限，請注意！", "orange")
             
-            show_msg(f"匯出功能在 Android 上可能需要外部存儲權限，請注意！", "orange")
-            
-            # 這裡我們先用一個簡單的寫法
             export_path = os.path.join(page.platform_directory.files, f"export_{datetime.now().strftime('%Y%m%d')}.csv")
             
             with open(export_path, 'w', newline='', encoding='utf-8-sig') as f:
@@ -562,13 +549,13 @@ def main(page: ft.Page):
     page.clean()
     page.add(t)
     
-    # 【重要】如果資料庫有錯誤，要顯示在畫面上讓使用者知道
+    # 【修正】如果資料庫有錯誤，用修復過的語法來顯示警告視窗
     if db.error_msg:
-        # 使用 AlertDialog 確保錯誤訊息在最上層
         page.dialog = ft.AlertDialog(
             title=ft.Text("⚠️ 嚴重錯誤"),
             content=ft.Text(db.error_msg, color="red"),
-            actions=[ft.TextButton("關閉", on_click=lambda e: page.dialog.open=False)]
+            # V7.4 修正: 使用 lambda: function_call()，而非 lambda: assignment
+            actions=[ft.TextButton("關閉", on_click=lambda e: page.set_dialog_open(False))] 
         )
         page.dialog.open = True
     
