@@ -1,23 +1,90 @@
-# main.py (V6.1 - 絕對終極版 / 修復縮排、顏色、路徑、套件)
-
 import flet as ft
 import sqlite3
 import os
-import sys
 import csv
+import random
 from datetime import datetime
 
 # =========================================================================
-# 1. 資料庫與路徑設定 (針對 Android 修正)
+# 1. 資料庫與路徑設定
 # =========================================================================
 
-# 取得目前檔案所在的資料夾 (用來讀取圖片)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_FILE = "icon.jpg"
-
-# 【關鍵修正】資料庫存放在使用者目錄，解決權限不足導致的白屏/閃退
 USER_DATA_DIR = os.path.expanduser("~")
 DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
+
+# 【彩蛋】神豬語錄庫 (完整擴充版)
+PIG_QUOTES = [
+    # --- 交易哲學與狠話 (新增) ---
+    "狼若回頭不是報恩就是報仇，我若回頭不是爆單就是爆倉！",
+    "站在風口上，黑豬都能飛上天。",
+    "不見棺材不掉淚，不打停利不出場！",
+    "賺錢有可能是錯的，賠錢有可能是對的。",
+    "當資金來源有壓力，再好的技術都沒有用。",
+    "風報比比什麼都重要。",
+    "浮盈不是盈，浮虧不是虧。",
+    "機會是等來的，輕倉才能有耐心。",
+    "重倉交易不可能有耐心等待的。",
+    "歷史總是不斷地重演相似的行情。",
+    "危機總是在你慶祝勝利之後到來。",
+
+    # --- 鼓勵與紀律 ---
+    "紀律 +1！離財富自由更近一步了！",
+    "忍住不追高，就是賺錢！",
+    "今天手氣不錯，但別忘了設停損！",
+    "本金第一，賺錢第二！",
+    "休息也是一種交易策略。",
+    "聽神豬的：不要All-in，會睡不著。",
+    "高手死於抄底，大師死於槓桿。",
+    "你是來投資的，不是來賭博的！",
+    "不錯喔！保持這個節奏！",
+    "看我的皇冠，想要嗎？守紀律就有！",
+    "耐心！耐心！耐心！",
+    "這一單忍住了？好樣的！",
+    "交易不是百米賽跑，是馬拉松。",
+    "讓利潤奔跑，讓虧損截斷！",
+    "不要預測行情，要跟隨行情。",
+    "最好的操作，有時候就是「不操作」。",
+    "每天進步 1%，一年後你會感謝自己。",
+    "相信你的交易系統，別相信直覺。",
+    
+    # --- 嘲諷與幹話 ---
+    "🐷：給你好棒棒印章！",
+    "不要盯盤了，去喝杯水吧。",
+    "再亂下單，我就把你帳戶吃掉！",
+    "手綁起來！不要亂點！",
+    "你看起來像是在賭博，不像在交易。",
+    "這筆單有經過大腦嗎？還是用腳趾下的？",
+    "今天賠錢了嗎？沒關係，明天繼續（誤）。",
+    "市場永遠是對的，錯的都是你的單。",
+    "別當韭菜，要當割韭菜的那把鐮刀。",
+    "你的對手是華爾街，你確定要這樣下？",
+    "下單前深呼吸，想想我的黑豬臉。",
+    "停損很痛，但爆倉會讓你想哭。",
+    "不要跟股票談戀愛，該分就分！",
+    "賺錢的時候像神，賠錢的時候像...豬？",
+    "FOMO 是通往地獄的特快車。",
+    "你是在交易，還是在尋求刺激？",
+    "承認吧，你剛才是不是想凹單？",
+    "停損就像呼吸，很正常，別難過。",
+    "贏家不是賺最多的，是活最久的。",
+    "不要為了交易而交易，要為了賺錢而交易。",
+    "想一夜致富？去買樂透比較快。",
+    "市場不欠你錢，別總想著報仇。",
+    
+    # --- 無厘頭 ---
+    "🐷 噗噗！",
+    "給我更多金幣！(嚼嚼)",
+    "你今天看過幾次我的帥臉了？",
+    "比起看盤，我更喜歡看你守紀律的樣子。",
+    "我的皇冠好像歪了，幫我扶一下。",
+    "有人說我是豬？我可是招財神獸！",
+    "多按幾下大拇指，運氣會變好喔（迷信）。",
+    "保持微笑，就算停損也要笑著離場。",
+    "記得吃飯，身體健康才能看盤。",
+    "這裡沒有明牌，只有紀律！"
+]
 
 class DBManager:
     def __init__(self):
@@ -151,13 +218,12 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V6.1)"
+    page.title = "招財黑豬交易日記 (V6.5)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
     page.scroll = "adaptive"
 
-    # 防白屏：如果有資料庫錯誤，直接顯示在螢幕上
     if db.error_msg:
         page.add(ft.Text(f"錯誤: {db.error_msg}", color="red", size=20))
         return
@@ -202,7 +268,6 @@ def main(page: ft.Page):
         else:
             show_msg("找不到圖片", "red")
 
-    # AppBar
     page.appbar = ft.AppBar(
         leading=ft.Container(
             content=avatar_content,
@@ -333,7 +398,38 @@ def main(page: ft.Page):
             lv_history.controls.append(ft.Text(f"Error: {e}"))
         page.update()
 
-    # --- Tab 3: 統計 ---
+    # --- 紀律計數器邏輯 (神豬開示功能) ---
+    lbl_thumbs = ft.Text("0", size=40, weight="bold", color="blue")
+
+    def thumbs_click(e):
+        # 1. 數字+1
+        lbl_thumbs.value = str(db.increment_thumbs_up())
+        
+        # 2. 隨機挑一句語錄
+        quote = random.choice(PIG_QUOTES)
+        show_msg(f"🐷：{quote}", "blue")
+        
+        page.update()
+    
+    def reset_thumbs(e):
+        lbl_thumbs.value = str(db.reset_thumbs_up())
+        show_msg("紀律重置！重新做人！", "orange")
+        page.update()
+
+    thumbs_section = ft.Container(
+        content=ft.Column([
+            ft.Text("🛡️ 紀律計數器", size=20, weight="bold"),
+            ft.Text("點擊大拇指，聽聽黑豬的建議！", size=12, color="grey"),
+            ft.Row([
+                ft.IconButton(icon="thumb_up", icon_size=50, icon_color="blue", on_click=thumbs_click),
+                lbl_thumbs,
+                ft.IconButton(icon="refresh", icon_size=20, icon_color="grey", on_click=reset_thumbs)
+            ], alignment="center")
+        ], horizontal_alignment="center"),
+        padding=20, bgcolor="#e3f2fd", border_radius=15, margin=ft.margin.only(bottom=20)
+    )
+
+    # --- Tab 3: 統計 (包含大拇指) ---
     stats_container = ft.Column(spacing=20, scroll="adaptive")
     dlg_help = ft.AlertDialog(title=ft.Text("說明"), content=ft.Text(""))
     page.overlay.append(dlg_help)
@@ -358,32 +454,31 @@ def main(page: ft.Page):
     def load_stats_data():
         trades = db.get_all_trades()
         stats_container.controls.clear()
+        
+        # 1. 先放入大拇指區塊
+        stats_container.controls.append(thumbs_section)
+        
+        # 2. 計算統計數據
         net = sum(t['pnl_usd'] for t in trades)
         wins = [t for t in trades if t['pnl_usd'] > 0]
         losses = [t for t in trades if t['pnl_usd'] <= 0]
         rate = (len(wins)/len(trades)*100) if trades else 0
         
         row1 = ft.Row([create_stat_card("淨利", f"${net:.2f}", "green" if net>=0 else "red", "淨利說明"), create_stat_card("勝率", f"{rate:.1f}%", "blue", "勝率說明")], alignment="center")
-        stats_container.controls.extend([ft.Text("帳戶統計", size=20, weight="bold", text_align="center"), row1])
+        
+        stats_container.controls.extend([
+            ft.Divider(),
+            ft.Text("帳戶數據", size=20, weight="bold", text_align="center"),
+            row1
+        ])
         page.update()
 
     tab_stats = ft.Container(content=stats_container, padding=20)
 
-    # --- Tab 4: 設定 ---
+    # --- Tab 4: 設定 (移除大拇指) ---
     txt_forex = ft.TextField(label="外匯合約")
     txt_gold = ft.TextField(label="黃金合約")
     txt_crypto = ft.TextField(label="加密貨幣合約")
-    lbl_thumbs = ft.Text("0", size=40, weight="bold", color="blue")
-
-    def thumbs_click(e):
-        lbl_thumbs.value = str(db.increment_thumbs_up())
-        show_msg("讚+1", "blue")
-        page.update()
-    
-    def reset_thumbs(e):
-        lbl_thumbs.value = str(db.reset_thumbs_up())
-        show_msg("已重置", "orange")
-        page.update()
 
     def save_set_click(e):
         try:
@@ -392,7 +487,6 @@ def main(page: ft.Page):
         except:
             show_msg("錯誤", "red")
 
-    # 【縮排修正重點】
     def export_csv_click(e):
         try:
             trades = db.get_all_trades()
@@ -414,24 +508,13 @@ def main(page: ft.Page):
         txt_crypto.value = str(s['crypto'])
         lbl_thumbs.value = str(s['thumbs'])
 
-    thumbs_section = ft.Container(
-        content=ft.Column([
-            ft.Text("紀律計數器", size=20, weight="bold"),
-            ft.Row([
-                ft.IconButton(icon="thumb_up", icon_size=50, icon_color="blue", on_click=thumbs_click),
-                lbl_thumbs,
-                ft.IconButton(icon="refresh", icon_size=20, icon_color="grey", on_click=reset_thumbs)
-            ], alignment="center")
-        ], horizontal_alignment="center"),
-        padding=20, bgcolor="#e3f2fd", border_radius=15
-    )
-
     tab_settings = ft.Container(
         content=ft.Column([
-            ft.Text("設定", size=20, weight="bold"),
+            ft.Text("合約設定", size=20, weight="bold"),
             txt_forex, txt_gold, txt_crypto,
             ft.ElevatedButton("更新設定", on_click=save_set_click),
-            thumbs_section,
+            ft.Divider(),
+            ft.Text("資料管理", size=20, weight="bold"),
             ft.ElevatedButton("匯出 CSV", icon="download", on_click=export_csv_click, bgcolor="green", color="white")
         ], spacing=20), padding=20
     )
@@ -451,6 +534,8 @@ def main(page: ft.Page):
         ], expand=True
     )
 
+    # 移除載入畫面，顯示主畫面
+    page.clean()
     page.add(t)
     refresh_all_data()
 
