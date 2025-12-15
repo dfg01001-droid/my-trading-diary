@@ -13,16 +13,12 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USER_DATA_DIR = os.path.expanduser("~")
 DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
 
-# 【重要修正】設定圖示路徑
-# 在 Flet 中，若設定 assets_dir="assets"，則 "/icon.jpg" 代表讀取 assets/icon.jpg
+# 設定圖示路徑
 ICON_SRC = "/icon.jpg" 
-
-# 用於檢查檔案是否存在的實體路徑 (邏輯判斷用)
 LOCAL_ICON_PATH = os.path.join(BASE_DIR, "assets", "icon.jpg")
 
-# 【彩蛋】神豬語錄庫 (完整擴充版)
+# 神豬語錄庫
 PIG_QUOTES = [
-    # --- 交易哲學與狠話 ---
     "狼若回頭不是報恩就是報仇，我若回頭不是爆單就是爆倉！",
     "站在風口上，黑豬都能飛上天。",
     "不見棺材不掉淚，不打停利不出場！",
@@ -34,8 +30,6 @@ PIG_QUOTES = [
     "重倉交易不可能有耐心等待的。",
     "歷史總是不斷地重演相似的行情。",
     "危機總是在你慶祝勝利之後到來。",
-
-    # --- 鼓勵與紀律 ---
     "紀律 +1！離財富自由更近一步了！",
     "忍住不追高，就是賺錢！",
     "今天手氣不錯，但別忘了設停損！",
@@ -54,8 +48,6 @@ PIG_QUOTES = [
     "最好的操作，有時候就是「不操作」。",
     "每天進步 1%，一年後你會感謝自己。",
     "相信你的交易系統，別相信直覺。",
-    
-    # --- 嘲諷與幹話 ---
     "🐷：給你好棒棒印章！",
     "不要盯盤了，去喝杯水吧。",
     "再亂下單，我就把你帳戶吃掉！",
@@ -78,8 +70,6 @@ PIG_QUOTES = [
     "不要為了交易而交易，要為了賺錢而交易。",
     "想一夜致富？去買樂透比較快。",
     "市場不欠你錢，別總想著報仇。",
-    
-    # --- 無厘頭 ---
     "🐷 噗噗！",
     "給我更多金幣！(嚼嚼)",
     "你今天看過幾次我的帥臉了？",
@@ -96,23 +86,14 @@ class DBManager:
     def __init__(self):
         self.error_msg = None
         try:
-            # --- Android 相容性修正 ---
-            # 1. 確保資料庫目錄存在
             db_dir = os.path.dirname(DB_FILE)
             if db_dir and not os.path.exists(db_dir):
                 os.makedirs(db_dir, exist_ok=True)
-            
-            # 2. 連接資料庫
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-            
-            # 3. 【重要】移除 WAL 模式 (避免 Android 權限/記憶體錯誤)
-            # self.conn.execute("PRAGMA journal_mode=WAL;") 
-            
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            # 顯示詳細錯誤路徑，方便除錯
             self.error_msg = f"DB Error: {str(e)}\nPath: {DB_FILE}"
             print(self.error_msg)
 
@@ -235,13 +216,15 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V7.0)"
+    page.title = "招財黑豬交易日記 (V7.1)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
-    page.scroll = "adaptive"
-
-    # 如果有資料庫錯誤，直接顯示在最上方
+    
+    # 【重要修正】移除 page.scroll，解決 Tab 內容空白問題
+    # page.scroll = "adaptive"  <-- 這一行刪掉了
+    
+    # 如果有資料庫錯誤，顯示紅條
     if db.error_msg:
         page.add(ft.Container(
             content=ft.Text(f"⚠️ {db.error_msg}", color="white", weight="bold"),
@@ -257,14 +240,10 @@ def main(page: ft.Page):
         snack_bar.open = True
         page.update()
 
-    # --- 圖示處理 (Assets) ---
-    # 檢查是否能找到圖 (用 LOCAL_ICON_PATH 判斷)，顯示時用 ICON_SRC
+    # --- 圖示處理 ---
     has_icon = os.path.exists(LOCAL_ICON_PATH)
-    
     if has_icon:
-        # 設定視窗圖示 (電腦版有效)
         page.window_icon = ICON_SRC
-        # APP 左上角頭像
         avatar_content = ft.Image(src=ICON_SRC, width=40, height=40, fit="cover", border_radius=20)
     else:
         avatar_content = ft.Icon(name="face", size=30)
@@ -272,7 +251,7 @@ def main(page: ft.Page):
     # --- 大圖 Dialog ---
     dlg_full_avatar = ft.AlertDialog(
         content=ft.Container(
-            content=ft.Image(src=ICON_SRC, fit="contain") if has_icon else ft.Text("找不到圖片: assets/icon.jpg"),
+            content=ft.Image(src=ICON_SRC, fit="contain") if has_icon else ft.Text("找不到圖片"),
             alignment=ft.alignment.center,
             height=400,
         ),
@@ -342,13 +321,15 @@ def main(page: ft.Page):
         except:
             show_msg("輸入錯誤", "red")
 
+    # 【重要】輸入區塊加入 scroll="auto"，讓小螢幕可以捲動
     tab_entry = ft.Container(
         content=ft.Column([
             ft.Text("新增交易", size=20, weight="bold"),
             txt_pair, dd_direction, txt_lots, txt_entry, txt_exit,
             ft.ElevatedButton("💾 保存交易", on_click=save_trade_click, height=50, bgcolor="blue", color="white"),
             lbl_pnl_preview
-        ], spacing=15), padding=20
+        ], spacing=15, scroll="auto"), 
+        padding=20
     )
 
     # --- Tab 2: 紀錄 ---
@@ -422,17 +403,13 @@ def main(page: ft.Page):
             lv_history.controls.append(ft.Text(f"Error: {e}"))
         page.update()
 
-    # --- 紀律計數器邏輯 (神豬開示功能) ---
+    # --- 紀律計數器邏輯 ---
     lbl_thumbs = ft.Text("0", size=40, weight="bold", color="blue")
 
     def thumbs_click(e):
-        # 1. 數字+1
         lbl_thumbs.value = str(db.increment_thumbs_up())
-        
-        # 2. 隨機挑一句語錄
         quote = random.choice(PIG_QUOTES)
         show_msg(f"🐷：{quote}", "blue")
-        
         page.update()
     
     def reset_thumbs(e):
@@ -453,8 +430,8 @@ def main(page: ft.Page):
         padding=20, bgcolor="#e3f2fd", border_radius=15, margin=ft.margin.only(bottom=20)
     )
 
-    # --- Tab 3: 統計 (包含大拇指) ---
-    stats_container = ft.Column(spacing=20, scroll="adaptive")
+    # --- Tab 3: 統計 ---
+    stats_container = ft.Column(spacing=20, scroll="auto") # 加入 scroll="auto"
     dlg_help = ft.AlertDialog(title=ft.Text("說明"), content=ft.Text(""))
     page.overlay.append(dlg_help)
 
@@ -478,14 +455,10 @@ def main(page: ft.Page):
     def load_stats_data():
         trades = db.get_all_trades()
         stats_container.controls.clear()
-        
-        # 1. 先放入大拇指區塊
         stats_container.controls.append(thumbs_section)
         
-        # 2. 計算統計數據
         net = sum(t['pnl_usd'] for t in trades)
         wins = [t for t in trades if t['pnl_usd'] > 0]
-        losses = [t for t in trades if t['pnl_usd'] <= 0]
         rate = (len(wins)/len(trades)*100) if trades else 0
         
         row1 = ft.Row([create_stat_card("淨利", f"${net:.2f}", "green" if net>=0 else "red", "淨利說明"), create_stat_card("勝率", f"{rate:.1f}%", "blue", "勝率說明")], alignment="center")
@@ -499,7 +472,7 @@ def main(page: ft.Page):
 
     tab_stats = ft.Container(content=stats_container, padding=20)
 
-    # --- Tab 4: 設定 (移除大拇指) ---
+    # --- Tab 4: 設定 ---
     txt_forex = ft.TextField(label="外匯合約")
     txt_gold = ft.TextField(label="黃金合約")
     txt_crypto = ft.TextField(label="加密貨幣合約")
@@ -540,7 +513,8 @@ def main(page: ft.Page):
             ft.Divider(),
             ft.Text("資料管理", size=20, weight="bold"),
             ft.ElevatedButton("匯出 CSV", icon="download", on_click=export_csv_click, bgcolor="green", color="white")
-        ], spacing=20), padding=20
+        ], spacing=20, scroll="auto"), # 加入 scroll="auto"
+        padding=20
     )
 
     def refresh_all_data():
@@ -558,11 +532,9 @@ def main(page: ft.Page):
         ], expand=True
     )
 
-    # 移除載入畫面，顯示主畫面
     page.clean()
     page.add(t)
     refresh_all_data()
 
-# 【重要修正】告訴 Flet assets 在哪裡
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="assets")
