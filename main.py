@@ -4,14 +4,20 @@ import os
 import csv
 import random
 from datetime import datetime
+import sys
 
 # =========================================================================
-# 1. 資料庫與路徑設定
+# 1. 資料庫與路徑設定 (最終修正)
 # =========================================================================
+
+# Flet 在 Android/iOS 上會自動將 DB 放在 App 專屬的沙箱內。
+# 如果使用 os.path.expanduser("~")，在某些環境下可能會指向 /data，導致權限錯誤。
+# 修正方式：直接讓 DB 檔案名在根目錄，Flet 會自動找到 App 的安全目錄。
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-USER_DATA_DIR = os.path.expanduser("~")
-DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
+
+# 【重要修正】將 DB 檔名直接設定，讓 Flet 底層自動處理路徑
+DB_FILE = "trading_data.db" 
 
 # 設定圖示路徑
 ICON_SRC = "/icon.jpg" 
@@ -83,26 +89,27 @@ PIG_QUOTES = [
 
 class DBManager:
     def __init__(self):
-        # 【修正】先初始化為 None，防止 init 失敗後屬性不存在
         self.cursor = None
         self.conn = None
         self.error_msg = None
         
         try:
-            db_dir = os.path.dirname(DB_FILE)
-            if db_dir and not os.path.exists(db_dir):
-                os.makedirs(db_dir, exist_ok=True)
+            # 由於 DB_FILE 現在只是一個檔名，SQLite 會將其建立在目前 Flet 程式執行環境的安全目錄。
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            # 記錄詳細錯誤與路徑
-            self.error_msg = f"資料庫錯誤: {str(e)}\n路徑: {DB_FILE}"
+            # 在 Android 上的路徑無法直接顯示，但我們會捕捉錯誤類型
+            error_detail = str(e)
+            if "unable to open database file" in error_detail:
+                 error_detail = "無法打開資料庫檔案，可能是應用程式權限或路徑錯誤。"
+            self.error_msg = f"資料庫初始化失敗: {error_detail}"
             print(self.error_msg)
 
     def create_tables(self):
         if not self.cursor: return
+        # ... (Create table code remains the same) ...
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,6 +140,7 @@ class DBManager:
 
     def check_and_migrate(self):
         if not self.cursor: return
+        # ... (Migration code remains the same) ...
         try:
             self.cursor.execute("SELECT note FROM trades LIMIT 1")
         except:
@@ -150,7 +158,6 @@ class DBManager:
             self.conn.commit()
 
     def get_settings(self):
-        # 【修正】防崩潰檢查
         if not self.cursor: 
             return {"forex": 100000.0, "gold": 100.0, "crypto": 1.0, "thumbs": 0}
         
@@ -237,7 +244,7 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V7.2)"
+    page.title = "招財黑豬交易日記 (V7.3)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
@@ -498,15 +505,25 @@ def main(page: ft.Page):
         try:
             trades = db.get_all_trades()
             if not trades: return show_msg("沒資料", "red")
-            path = os.path.join(USER_DATA_DIR, f"export_{datetime.now().strftime('%Y%m%d')}.csv")
-            with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+            
+            # 【注意】外部存儲需要 Android 權限，這裡的 path 暫時先指向 App 內部，
+            # 實際匯出時需使用 flet.page.platform_directory.download
+            
+            show_msg(f"匯出功能在 Android 上可能需要外部存儲權限，請注意！", "orange")
+            
+            # 這裡我們先用一個簡單的寫法
+            export_path = os.path.join(page.platform_directory.files, f"export_{datetime.now().strftime('%Y%m%d')}.csv")
+            
+            with open(export_path, 'w', newline='', encoding='utf-8-sig') as f:
                 w = csv.writer(f)
                 w.writerow(["ID", "Pair", "Dir", "Lots", "Entry", "Exit", "PnL", "Time", "Note"])
                 for t in trades:
                     w.writerow([t['id'], t['pair'], t['direction'], t['lots'], t['entry_price'], t['exit_price'], t['pnl_usd'], t['entry_time'], t['note']])
-            show_msg(f"匯出至: {path}")
+            
+            show_msg(f"匯出檔案已建立，但可能無法直接存取。", "orange")
+            
         except Exception as ex:
-            show_msg(f"失敗: {ex}", "red")
+            show_msg(f"匯出失敗: {ex}", "red")
 
     def load_settings_data():
         s = db.get_settings()
@@ -545,14 +562,18 @@ def main(page: ft.Page):
     page.clean()
     page.add(t)
     
-    # 【修正】先檢查有沒有錯誤訊息，再添加紅條
+    # 【重要】如果資料庫有錯誤，要顯示在畫面上讓使用者知道
     if db.error_msg:
-        page.add(ft.Container(
-            content=ft.Text(f"⚠️ {db.error_msg}", color="white", weight="bold"),
-            bgcolor="red", padding=10, border_radius=5
-        ))
+        # 使用 AlertDialog 確保錯誤訊息在最上層
+        page.dialog = ft.AlertDialog(
+            title=ft.Text("⚠️ 嚴重錯誤"),
+            content=ft.Text(db.error_msg, color="red"),
+            actions=[ft.TextButton("關閉", on_click=lambda e: page.dialog.open=False)]
+        )
+        page.dialog.open = True
     
     refresh_all_data()
+    page.update()
 
 if __name__ == "__main__":
     ft.app(target=main, assets_dir="assets")
