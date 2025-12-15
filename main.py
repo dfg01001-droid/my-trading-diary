@@ -10,13 +10,19 @@ from datetime import datetime
 # =========================================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICON_FILE = "icon.jpg"
 USER_DATA_DIR = os.path.expanduser("~")
 DB_FILE = os.path.join(USER_DATA_DIR, "trading_data.db")
 
+# 【重要修正】設定圖示路徑
+# 在 Flet 中，若設定 assets_dir="assets"，則 "/icon.jpg" 代表讀取 assets/icon.jpg
+ICON_SRC = "/icon.jpg" 
+
+# 用於檢查檔案是否存在的實體路徑 (邏輯判斷用)
+LOCAL_ICON_PATH = os.path.join(BASE_DIR, "assets", "icon.jpg")
+
 # 【彩蛋】神豬語錄庫 (完整擴充版)
 PIG_QUOTES = [
-    # --- 交易哲學與狠話 (新增) ---
+    # --- 交易哲學與狠話 ---
     "狼若回頭不是報恩就是報仇，我若回頭不是爆單就是爆倉！",
     "站在風口上，黑豬都能飛上天。",
     "不見棺材不掉淚，不打停利不出場！",
@@ -90,14 +96,25 @@ class DBManager:
     def __init__(self):
         self.error_msg = None
         try:
+            # --- Android 相容性修正 ---
+            # 1. 確保資料庫目錄存在
+            db_dir = os.path.dirname(DB_FILE)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
+            # 2. 連接資料庫
             self.conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-            self.conn.execute("PRAGMA journal_mode=WAL;")
+            
+            # 3. 【重要】移除 WAL 模式 (避免 Android 權限/記憶體錯誤)
+            # self.conn.execute("PRAGMA journal_mode=WAL;") 
+            
             self.cursor = self.conn.cursor()
             self.create_tables()
             self.check_and_migrate()
         except Exception as e:
-            self.error_msg = str(e)
-            print(f"DB Error: {e}")
+            # 顯示詳細錯誤路徑，方便除錯
+            self.error_msg = f"DB Error: {str(e)}\nPath: {DB_FILE}"
+            print(self.error_msg)
 
     def create_tables(self):
         self.cursor.execute('''
@@ -218,15 +235,18 @@ db = DBManager()
 # =========================================================================
 
 def main(page: ft.Page):
-    page.title = "招財黑豬交易日記 (V6.5)"
+    page.title = "招財黑豬交易日記 (V7.0)"
     page.theme_mode = "LIGHT"
     page.window_width = 400
     page.window_height = 800
     page.scroll = "adaptive"
 
+    # 如果有資料庫錯誤，直接顯示在最上方
     if db.error_msg:
-        page.add(ft.Text(f"錯誤: {db.error_msg}", color="red", size=20))
-        return
+        page.add(ft.Container(
+            content=ft.Text(f"⚠️ {db.error_msg}", color="white", weight="bold"),
+            bgcolor="red", padding=10, border_radius=5
+        ))
 
     snack_bar = ft.SnackBar(content=ft.Text(""))
     page.overlay.append(snack_bar)
@@ -237,18 +257,22 @@ def main(page: ft.Page):
         snack_bar.open = True
         page.update()
 
-    # --- 圖示處理 ---
-    icon_path = os.path.join(BASE_DIR, ICON_FILE)
-    if os.path.exists(icon_path):
-        page.window_icon = ICON_FILE
-        avatar_content = ft.Image(src=ICON_FILE, width=40, height=40, fit="cover", border_radius=20)
+    # --- 圖示處理 (Assets) ---
+    # 檢查是否能找到圖 (用 LOCAL_ICON_PATH 判斷)，顯示時用 ICON_SRC
+    has_icon = os.path.exists(LOCAL_ICON_PATH)
+    
+    if has_icon:
+        # 設定視窗圖示 (電腦版有效)
+        page.window_icon = ICON_SRC
+        # APP 左上角頭像
+        avatar_content = ft.Image(src=ICON_SRC, width=40, height=40, fit="cover", border_radius=20)
     else:
         avatar_content = ft.Icon(name="face", size=30)
 
     # --- 大圖 Dialog ---
     dlg_full_avatar = ft.AlertDialog(
         content=ft.Container(
-            content=ft.Image(src=ICON_FILE, fit="contain") if os.path.exists(icon_path) else ft.Text("找不到圖片"),
+            content=ft.Image(src=ICON_SRC, fit="contain") if has_icon else ft.Text("找不到圖片: assets/icon.jpg"),
             alignment=ft.alignment.center,
             height=400,
         ),
@@ -262,7 +286,7 @@ def main(page: ft.Page):
         page.update()
 
     def show_full_avatar(e):
-        if os.path.exists(icon_path):
+        if has_icon:
             dlg_full_avatar.open = True
             page.update()
         else:
@@ -314,7 +338,7 @@ def main(page: ft.Page):
                 show_msg(f"保存成功! ${pnl:.2f}")
                 refresh_all_data()
             else:
-                show_msg("保存失敗", "red")
+                show_msg("保存失敗 (DB Error)", "red")
         except:
             show_msg("輸入錯誤", "red")
 
@@ -539,5 +563,6 @@ def main(page: ft.Page):
     page.add(t)
     refresh_all_data()
 
+# 【重要修正】告訴 Flet assets 在哪裡
 if __name__ == "__main__":
-    ft.app(target=main)
+    ft.app(target=main, assets_dir="assets")
